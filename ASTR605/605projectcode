@@ -1,0 +1,167 @@
+from astropy.cosmology import WMAP9 as cosmo
+from astropy import constants as const
+import math
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+
+# Function for linear fit
+def linearfit(xpoint, b, intercept):
+    return b*xpoint + intercept
+
+
+path1 = r'C:/Users/Kaila Ronayne/Desktop/sptgmos_catalogs_release'
+path2 = '/sptgmos_dispersions_release.dat'
+path3 = '/sptgmos_galaxies_release.dat'
+path4 = '/sptgmos_radial_velocities_release.dat'
+
+# Columns to append to data sets
+objects1 = [0, 1, 2, 3, 4, 5, 6]
+objects2 = [0, 2, 3, 4, 5, 12, 13]
+objects3 = [0, 1, 2, 3, 4, 5]
+
+# Initializing arrays
+dispersion = []
+galaxies = []
+radial_velocities = []
+
+
+# Save data into arrays
+for i in range(len(objects1)):
+    with open(path1 + path2) as datFile:
+        dispersion.append([data.split()[objects1[i]] for data in datFile])
+
+for i in range(len(objects2)):
+    with open(path1 + path3) as datFile:
+        galaxies.append([data.split()[objects2[i]] for data in datFile])
+
+for i in range(len(objects3)):
+    with open(path1 + path4) as datFile:
+        radial_velocities.append([data.split()[objects3[i]] for data in datFile])
+
+
+# Calculating Virial Radius using relation from Hansen et al 2005
+R200 = []
+Ngal = dispersion[2]
+for i in range(len(Ngal)):
+    if i != 0:
+        val = float(Ngal[i])
+        R200.append(val*0.0146875 + 0.1725)             # [Mpc/h]
+
+
+# Calculate p_crit
+rho = []
+z = dispersion[3]
+z.pop(0)
+
+for i in range(len(z)):
+    val = float(z[i])
+    H0 = (cosmo.H(val)).value                                                                           # [km/ Mpc s]
+    rho.append(((3*H0**2) / (8 * math.pi * const.G.value))*((3.24e23)**3/(1.9891e30)*(3.24e-20)**2))    # [Msol/m^3]
+
+# Calculate M200
+M200 = [4 * 200 * math.pi * b * a ** 3 for a, b in zip(R200, rho)]
+
+# For plots
+z = [float(a) for a in z]
+Ngal.pop(0)
+Ngal = [float(a) for a in Ngal]
+
+
+# Color plot for galaxy data
+cluster_name = galaxies[0]
+cluster_name.pop(0)
+rband = galaxies[5]
+rband.pop(0)
+iband = galaxies[6]
+iband.pop(0)
+r_i = []
+
+for i in range(len(rband)):
+    rmag = float(rband[i])
+    imag = float(iband[i])
+    if (abs(rmag) == 99.99) or (abs(imag) == 99.99):
+        r_i.append(0)
+    else:
+        r_i.append(float(rmag) - float(imag))
+
+
+#r_i = [float(a) - float(b) for a, b in zip(rband, iband)]
+
+# separate galaxy data into associated cluster for color plot
+group = []
+cat = 0
+# this is just in case cluster names are not in order
+group_names = []
+group_cat = []
+for i in range(len(cluster_name)):
+    if i != 0:
+        if cluster_name[i] == cluster_name[i - 1]:
+            group.append(cat)
+        else:
+            if cluster_name[i] not in group_names:
+                cat += 1
+                group.append(cat)
+                group_names.append(cluster_name[i])
+                group_cat.append(cat)
+            else:
+                group_index = group_names.index(cluster_name[i])
+                group.append(group_cat[i])
+    else:
+        group_names.append(cluster_name[i])
+        group_cat.append(cat)
+        group.append(cat)
+
+# Taking out outliers for objects that were not detected
+pop = 0
+for i in range(len(r_i)):
+    if r_i[i - pop] == 0:
+        rband.pop(i - pop)
+        r_i.pop(i - pop)
+        group.pop(i - pop)
+        pop += 1
+
+# For N vs R200 plot
+ngalx = [8, 20, 40, 60]
+r200y = [0.29, 0.45, 0.76, 0.96]
+popt_m, pcov_m = curve_fit(linearfit, ngalx, r200y)
+print(*popt_m)
+quit()
+RN_fit = [a*popt_m[0] + popt_m[1] for a in ngalx]
+
+# Plots for paper
+ax = plt.gca()
+cm = plt.cm.get_cmap('PiYG')
+sc = plt.scatter(rband, r_i, c=group, cmap=cm)
+ax.set_xticks(ax.get_xticks()[::35])
+plt.xlabel('$r_{AB}$ '+' [mag]')
+plt.ylabel('${(r - i)}_{AB}$ '+' [mag]')
+plt.tight_layout()
+
+plt.figure(2)
+plt.plot(ngalx, RN_fit, 'r--', alpha=0.6, label='${(Hansen)}_{fit}$')
+plt.scatter(ngalx, r200y, marker='x', color='k', s=150, label='Hansen et al 2005')
+plt.scatter(Ngal, R200, marker='+', color='g', label='This Work')
+plt.xlim(min(ngalx), max(ngalx))
+plt.xlabel('N gals')
+plt.ylabel('$R_{200}$' + ' [' + '$h^{-1}$' + ' Mpc]')
+plt.legend()
+plt.tight_layout()
+plt.subplots_adjust(top=0.961,
+                    bottom=0.121,
+                    left=0.105,
+                    right=0.963,
+                    hspace=0.2,
+                    wspace=0.2)
+
+plt.figure(3)
+plt.scatter(z, M200,  marker='+', color='g')
+plt.xlabel('Redshift')
+plt.ylabel('$M_{200}$' + '[' + '$M_{\odot}$' + '$h^{-1}$' + ' ]')
+plt.yscale('log')
+#plt.xscale('symlog')
+plt.tight_layout()
+plt.show()
+
+
